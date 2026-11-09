@@ -1,0 +1,28 @@
+name: seal-build
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download AdoptOpenJDK 8u282 (release Build-Jdk 1.8.0_282)
+        run: curl -fsSL -o "$RUNNER_TEMP/jdk8.tar.gz" https://github.com/AdoptOpenJDK/openjdk8-binaries/releases/download/jdk8u282-b08/OpenJDK8U-jdk_x64_linux_hotspot_8u282b08.tar.gz
+      - uses: actions/setup-java@v4
+        with:
+          distribution: jdkfile
+          jdkFile: ${{ runner.temp }}/jdk8.tar.gz
+          java-version: '8.0.282'
+          architecture: x64
+      - name: Resolve from Maven Central only (repo.spring.io/release answers 401 to anonymous clients)
+        run: ': > .mvn/maven.config'
+      - name: Package (tests run on Travis)
+        run: ./mvnw -B -V install -DskipTests=true -Dgpg.skip=true -Dmaven.javadoc.skip=true -pl spring-cloud-function-context -am
+      - uses: actions/upload-artifact@v4
+        with:
+          name: spring-cloud-function-context
+          path: spring-cloud-function-context/target/spring-cloud-function-context-3.0.13.RELEASE.jar
+          if-no-files-found: error

@@ -1,11 +1,20 @@
 language: java
-jdk:
-  - oraclejdk8
 sudo: required
 cache:
   directories:
     - $HOME/.m2
 install: true
-before_script: travis_wait 45 ./mvnw install -q -U -DskipTests=true -Dmaven.test.redirectTestOutputToFile=true
-script: ./mvnw install -q -nsu -Dmaven.test.redirectTestOutputToFile=true
+before_install:
+  # oraclejdk8 can no longer be provisioned by Travis; the release was built with JDK 1.8.0_282
+  - curl -fsSL -o /tmp/jdk8.tar.gz https://github.com/AdoptOpenJDK/openjdk8-binaries/releases/download/jdk8u282-b08/OpenJDK8U-jdk_x64_linux_hotspot_8u282b08.tar.gz
+  - mkdir -p /tmp/jdk8 && tar -xzf /tmp/jdk8.tar.gz -C /tmp/jdk8 --strip-components=1
+  - export JAVA_HOME=/tmp/jdk8 && export PATH=/tmp/jdk8/bin:$PATH
+  # repo.spring.io/release now answers 401 to anonymous clients; resolve from Maven Central only
+  - ": > .mvn/maven.config"
+  - java -version
+before_script: travis_wait 45 ./mvnw install -q -U -DskipTests=true -Dmaven.test.redirectTestOutputToFile=true -Dgpg.skip=true -Dmaven.javadoc.skip=true
+script: ./mvnw install -B -nsu -Dmaven.test.redirectTestOutputToFile=true -Dgpg.skip=true -Dmaven.javadoc.skip=true
+after_script:
+  # surefire prints only a skip count; list each skipped test with its @Ignore reason from source, plus totals
+  - python3 .travis/seal_test_report.py
 dist: trusty
