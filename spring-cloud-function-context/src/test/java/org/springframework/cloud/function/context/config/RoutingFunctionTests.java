@@ -251,6 +251,37 @@ public class RoutingFunctionTests {
 		assertThat(function.apply(message)).isEqualTo("HELLO");
 	}
 
+	@SuppressWarnings({ "unchecked", "rawtypes" })
+	@Test
+	public void failWhenRoutingToItself() {
+		FunctionCatalog functionCatalog = this.configureCatalog();
+		Function function = functionCatalog.lookup(RoutingFunction.FUNCTION_NAME);
+		assertThat(function).isNotNull();
+		String[] definitions = new String[] { RoutingFunction.FUNCTION_NAME,
+				RoutingFunction.FUNCTION_NAME + "|reverse", "reverse|" + RoutingFunction.FUNCTION_NAME };
+		for (String definition : definitions) {
+			Message<String> message = MessageBuilder.withPayload("hello")
+					.setHeader(FunctionProperties.PREFIX + ".definition", definition).build();
+			try {
+				function.apply(message);
+				fail("Expected routing to '" + definition + "' to be rejected");
+			}
+			catch (IllegalStateException e) {
+				assertThat(e.getMessage()).contains("routing to itself is not allowed");
+			}
+		}
+		Message<String> message = MessageBuilder.withPayload("hello")
+				.setHeader(FunctionProperties.PREFIX + ".routing-expression", "'" + RoutingFunction.FUNCTION_NAME + "'")
+				.build();
+		try {
+			function.apply(message);
+			fail("Expected routing-expression resolving to the router to be rejected");
+		}
+		catch (IllegalStateException e) {
+			assertThat(e.getMessage()).contains("routing to itself is not allowed");
+		}
+	}
+
 	@EnableAutoConfiguration
 	@Configuration
 	protected static class RoutingFunctionConfiguration {

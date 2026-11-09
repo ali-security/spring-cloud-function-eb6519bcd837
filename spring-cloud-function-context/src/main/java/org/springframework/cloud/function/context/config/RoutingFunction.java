@@ -17,6 +17,7 @@
 package org.springframework.cloud.function.context.config;
 
 import java.lang.reflect.Type;
+import java.util.Arrays;
 import java.util.function.Function;
 
 import org.apache.commons.logging.Log;
@@ -29,6 +30,7 @@ import org.springframework.cloud.function.context.FunctionCatalog;
 import org.springframework.cloud.function.context.FunctionProperties;
 import org.springframework.cloud.function.context.catalog.FunctionInspector;
 import org.springframework.cloud.function.context.catalog.FunctionTypeUtils;
+import org.springframework.cloud.function.context.catalog.SimpleFunctionRegistry.FunctionInvocationWrapper;
 import org.springframework.context.expression.MapAccessor;
 import org.springframework.expression.BeanResolver;
 import org.springframework.expression.Expression;
@@ -162,7 +164,31 @@ public class RoutingFunction implements Function<Object, Object> {
 			}
 		}
 
+		if (this.routesToItself(function)) {
+			throw new IllegalStateException("Failed to establish route, and routing to itself is not allowed as it creates a loop. Please provide: "
+					+ "'spring.cloud.function.definition' as Message header or as application property or "
+					+ "'spring.cloud.function.routing-expression' as application property.");
+		}
+
 		return function.apply(input);
+	}
+
+	/*
+	 * The routed-to function would hand the same input straight back to this RoutingFunction
+	 * (directly, or as the first step of a composition), recursing until the stack overflows.
+	 */
+	@SuppressWarnings("rawtypes")
+	private boolean routesToItself(Function function) {
+		if (!(function instanceof FunctionInvocationWrapper)) {
+			return false;
+		}
+		FunctionInvocationWrapper wrapper = (FunctionInvocationWrapper) function;
+		if (wrapper.getTarget() == this) {
+			return true;
+		}
+		String definition = wrapper.getFunctionDefinition();
+		return definition != null && Arrays.asList(StringUtils
+				.tokenizeToStringArray(definition.replaceAll(",", "|"), "|")).contains(FUNCTION_NAME);
 	}
 
 	private void assertOriginalInputIsNotPublisher(boolean originalInputIsPublisher) {
