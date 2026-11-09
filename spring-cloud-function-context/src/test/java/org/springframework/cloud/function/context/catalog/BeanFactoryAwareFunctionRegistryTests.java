@@ -120,6 +120,45 @@ public class BeanFactoryAwareFunctionRegistryTests {
 		assertThat(c.size()).isEqualTo(2);
 	}
 
+	@SuppressWarnings({ "rawtypes", "unchecked" })
+	@Test
+	public void testBoundedFunctionCache() throws Exception {
+		FunctionCatalog catalog = this.configureCatalog();
+		Field byNameField = ReflectionUtils.findField(catalog.getClass(), "registrationsByName");
+		byNameField.setAccessible(true);
+		Field byFunctionField = ReflectionUtils.findField(catalog.getClass(), "registrationsByFunction");
+		byFunctionField.setAccessible(true);
+
+		// trailing whitespace is trimmed before resolving, so each is a distinct, valid definition
+		StringBuilder definition = new StringBuilder("uppercase|uppercase");
+		for (int i = 0; i < 1100; i++) {
+			definition.append(' ');
+			assertThat((Function) catalog.lookup(definition.toString())).isNotNull();
+		}
+		assertThat(((Map) byNameField.get(catalog)).size()).isLessThanOrEqualTo(1000);
+		assertThat(((Map) byFunctionField.get(catalog)).size()).isLessThanOrEqualTo(1000);
+
+		Function<String, String> evicted = catalog.lookup("uppercase|uppercase ");
+		assertThat(evicted.apply("hello")).isEqualTo("HELLO");
+	}
+
+	@SuppressWarnings({ "rawtypes", "unchecked" })
+	@Test
+	public void testEvictedFunctionKeepsRegistration() throws Exception {
+		FunctionCatalog catalog = this.configureCatalog();
+		Function inFlight = catalog.lookup("uppercase|uppercase");
+		StringBuilder definition = new StringBuilder("uppercase|uppercase");
+		for (int i = 0; i < 1100; i++) {
+			definition.append(' ');
+			catalog.lookup(definition.toString());
+		}
+		FunctionRegistration<?> registration = ((FunctionInspector) catalog).getRegistration(inFlight);
+		assertThat(registration).isNotNull();
+		assertThat(registration.getType().getType())
+			.isEqualTo(((FunctionInvocationWrapper) inFlight).getFunctionType());
+		assertThat(inFlight.apply("hello")).isEqualTo("HELLO");
+	}
+
 	@SuppressWarnings("unchecked")
 	@Test
 	public void testDefaultLookup() throws Exception {

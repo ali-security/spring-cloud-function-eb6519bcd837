@@ -29,6 +29,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -106,6 +107,24 @@ public class SimpleFunctionRegistry implements FunctionRegistry, FunctionInspect
 	private final Map<Object, FunctionRegistration<Object>> registrationsByFunction = new HashMap<>();
 
 	private final Map<String, FunctionRegistration<Object>> registrationsByName = new HashMap<>();
+
+	private int wrappedFunctionDefinitionsCacheSize = 1000;
+
+	/*
+	 * Definitions cached by compose(), eldest first. Evicting one also drops its two registry
+	 * entries, so distinct definitions (e.g. 'f|f|f...') cannot grow the registry without limit.
+	 */
+	private final Map<String, Object> wrappedFunctionDefinitions = new LinkedHashMap<String, Object>() {
+		@Override
+		protected boolean removeEldestEntry(Map.Entry<String, Object> eldest) {
+			boolean remove = size() > wrappedFunctionDefinitionsCacheSize;
+			if (remove) {
+				registrationsByName.remove(eldest.getKey());
+				registrationsByFunction.remove(eldest.getValue());
+			}
+			return remove;
+		}
+	};
 
 	private final ConversionService conversionService;
 
@@ -200,8 +219,13 @@ public class SimpleFunctionRegistry implements FunctionRegistry, FunctionInspect
 		if (registration == null && function instanceof FunctionInvocationWrapper) {
 			registration = this.registrationsByName.get(((FunctionInvocationWrapper) function).getFunctionDefinition());
 			if (registration == null) {
-				function = ((FunctionInvocationWrapper) function).target;
-				registration = this.registrationsByFunction.get(function);
+				FunctionInvocationWrapper wrapper = (FunctionInvocationWrapper) function;
+				registration = this.registrationsByFunction.get(wrapper.target);
+				if (registration == null && wrapper.getFunctionType() != null) {
+					// evicted from wrappedFunctionDefinitions while a caller still holds the wrapper
+					registration = new FunctionRegistration<>(wrapper, wrapper.getFunctionDefinition())
+						.type(wrapper.getFunctionType());
+				}
 			}
 		}
 		return registration;
@@ -364,7 +388,9 @@ public class SimpleFunctionRegistry implements FunctionRegistry, FunctionInspect
 			FunctionRegistration<Object> registration = new FunctionRegistration<Object>(resultFunction, definition)
 				.type(originFunctionType);
 			registrationsByFunction.putIfAbsent(resultFunction, registration);
-			registrationsByName.putIfAbsent(definition, registration);
+			if (registrationsByName.putIfAbsent(definition, registration) == null) {
+				wrappedFunctionDefinitions.put(definition, resultFunction);
+			}
 		}
 		return resultFunction;
 	}
