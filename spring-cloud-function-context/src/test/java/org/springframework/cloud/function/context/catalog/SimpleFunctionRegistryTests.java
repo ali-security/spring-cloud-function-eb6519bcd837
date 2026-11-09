@@ -16,10 +16,15 @@
 
 package org.springframework.cloud.function.context.catalog;
 
+import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
@@ -59,6 +64,7 @@ import org.springframework.messaging.converter.MessageConverter;
 import org.springframework.messaging.converter.StringMessageConverter;
 import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.util.MimeType;
+import org.springframework.util.ReflectionUtils;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -82,6 +88,29 @@ public class SimpleFunctionRegistryTests {
 		this.messageConverter = new CompositeMessageConverter(messageConverters);
 
 		this.conversionService = new DefaultConversionService();
+	}
+
+	@SuppressWarnings("rawtypes")
+	@Test
+	public void concurrencyRegistrationTest() throws Exception {
+		for (int round = 0; round < 50; round++) {
+			UpperCase function = new UpperCase();
+			FunctionRegistration<UpperCase> registration = new FunctionRegistration<>(
+					function, "uppercase").type(FunctionType.of(UpperCase.class));
+			SimpleFunctionRegistry catalog = new SimpleFunctionRegistry(this.conversionService, this.messageConverter);
+			ExecutorService executor = Executors.newFixedThreadPool(16);
+			for (int i = 0; i < 1000; i++) {
+				executor.execute(() -> {
+					catalog.register(registration);
+				});
+			}
+			executor.shutdown();
+			assertThat(executor.awaitTermination(30, TimeUnit.SECONDS)).isTrue();
+			Field frField = ReflectionUtils.findField(catalog.getClass(), "registrationsByFunction");
+			frField.setAccessible(true);
+			Map c = (Map) frField.get(catalog);
+			assertThat(c.size()).isEqualTo(1);
+		}
 	}
 
 	@SuppressWarnings("unchecked")

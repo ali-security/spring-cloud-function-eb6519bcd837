@@ -179,7 +179,7 @@ public class SimpleFunctionRegistry implements FunctionRegistry, FunctionInspect
 	}
 
 	@Override
-	public Set<String> getNames(Class<?> type) {
+	public synchronized Set<String> getNames(Class<?> type) {
 		Set<String> registeredNames = registrationsByFunction.values().stream().flatMap(reg -> reg.getNames().stream())
 			.collect(Collectors.toSet());
 		return registeredNames;
@@ -187,7 +187,7 @@ public class SimpleFunctionRegistry implements FunctionRegistry, FunctionInspect
 
 	@SuppressWarnings("unchecked")
 	@Override
-	public <T> void register(FunctionRegistration<T> registration) {
+	public synchronized <T> void register(FunctionRegistration<T> registration) {
 		this.registrationsByFunction.put(registration.getTarget(), (FunctionRegistration<Object>) registration);
 		for (String name : registration.getNames()) {
 			this.registrationsByName.put(name, (FunctionRegistration<Object>) registration);
@@ -267,7 +267,7 @@ public class SimpleFunctionRegistry implements FunctionRegistry, FunctionInspect
 	}
 
 	@SuppressWarnings({"unchecked", "rawtypes"})
-	private Function<?, ?> compose(Class<?> type, String definition, String... acceptedOutputTypes) {
+	private synchronized Function<?, ?> compose(Class<?> type, String definition, String... acceptedOutputTypes) {
 		if (logger.isInfoEnabled()) {
 			logger.info("Looking up function '" + definition + "' with acceptedOutputTypes: " + Arrays
 				.asList(acceptedOutputTypes));

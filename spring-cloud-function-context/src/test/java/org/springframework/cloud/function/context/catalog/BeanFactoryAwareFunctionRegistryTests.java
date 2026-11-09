@@ -24,6 +24,9 @@ import java.util.Collections;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -94,6 +97,27 @@ public class BeanFactoryAwareFunctionRegistryTests {
 	@Before
 	public void before() {
 		System.clearProperty("spring.cloud.function.definition");
+	}
+
+	@SuppressWarnings({ "rawtypes" })
+	@Test
+	public void concurrencyLookupTest() throws Exception {
+		FunctionCatalog catalog = this.configureCatalog();
+		ExecutorService executor = Executors.newCachedThreadPool();
+		for (int i = 0; i < 100; i++) {
+			executor.execute(() -> {
+				catalog.lookup("uppercase", "application/json");
+			});
+			executor.execute(() -> {
+				catalog.lookup("numberword", "application/json");
+			});
+		}
+		executor.shutdown();
+		assertThat(executor.awaitTermination(30, TimeUnit.SECONDS)).isTrue();
+		Field frField = ReflectionUtils.findField(catalog.getClass(), "registrationsByFunction");
+		frField.setAccessible(true);
+		Map c = (Map) frField.get(catalog);
+		assertThat(c.size()).isEqualTo(2);
 	}
 
 	@SuppressWarnings("unchecked")
