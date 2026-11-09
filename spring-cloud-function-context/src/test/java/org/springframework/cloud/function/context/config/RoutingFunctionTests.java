@@ -16,6 +16,8 @@
 
 package org.springframework.cloud.function.context.config;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.function.Function;
 
 import org.junit.After;
@@ -103,6 +105,79 @@ public class RoutingFunctionTests {
 				.setHeader(FunctionProperties.PREFIX + ".routing-expression", "'echoFlux'").build();
 		Flux resultFlux = (Flux) function.apply(Flux.just(message));
 		resultFlux.subscribe();
+	}
+
+	@SuppressWarnings({ "unchecked", "rawtypes" })
+	@Test
+	public void failWithHeaderProvidedExpressionAccessingRuntime() {
+		FunctionCatalog functionCatalog = this.configureCatalog();
+		Function function = functionCatalog.lookup(RoutingFunction.FUNCTION_NAME);
+		assertThat(function).isNotNull();
+		Message<String> message = MessageBuilder.withPayload("hello")
+				.setHeader(FunctionProperties.PREFIX + ".routing-expression",
+						"T(java.lang.Runtime).getRuntime().exec(\"open -a calculator.app\")")
+				.build();
+		try {
+			function.apply(message);
+			fail();
+		}
+		catch (Exception e) {
+			assertThat(e.getMessage()).isEqualTo("EL1005E: Type cannot be found 'java.lang.Runtime'");
+		}
+
+	}
+
+	@SuppressWarnings({ "unchecked", "rawtypes" })
+	@Test
+	public void failWithHeaderProvidedExpressionExecutingArbitraryCode() {
+		String propertyName = "spring.cloud.function.routing.header-expression-executed";
+		String setProperty = "setProperty('" + propertyName + "', 'pwned')";
+		String[] expressions = new String[] {
+				// static method invocation via type reference
+				"T(java.lang.System)." + setProperty,
+				// constructor invocation
+				"new java.lang.String('x').concat(T(java.lang.System)." + setProperty + ")",
+				// instance method invocation and reflection
+				"''.getClass().forName('java.lang.System').getMethod('setProperty', ''.getClass(), ''.getClass())"
+						+ ".invoke(null, '" + propertyName + "', 'pwned')"
+		};
+		FunctionCatalog functionCatalog = this.configureCatalog();
+		Function function = functionCatalog.lookup(RoutingFunction.FUNCTION_NAME);
+		assertThat(function).isNotNull();
+		List<String> executedExpressions = new ArrayList<>();
+		try {
+			for (String expression : expressions) {
+				Message<String> message = MessageBuilder.withPayload("hello")
+						.setHeader(FunctionProperties.PREFIX + ".routing-expression", expression).build();
+				try {
+					function.apply(message);
+					fail("Routing with header-provided expression should not succeed: " + expression);
+				}
+				catch (Exception e) {
+					// expected
+				}
+				if (System.getProperty(propertyName) != null) {
+					executedExpressions.add(expression);
+					System.clearProperty(propertyName);
+				}
+			}
+		}
+		finally {
+			System.clearProperty(propertyName);
+		}
+		assertThat(executedExpressions).isEmpty();
+	}
+
+	@SuppressWarnings({ "unchecked", "rawtypes" })
+	@Test
+	public void testInvocationWithMessageAndHeaderProvidedRoutingExpression() {
+		FunctionCatalog functionCatalog = this.configureCatalog();
+		Function function = functionCatalog.lookup(RoutingFunction.FUNCTION_NAME);
+		assertThat(function).isNotNull();
+		Message<String> message = MessageBuilder.withPayload("hello")
+				.setHeader(FunctionProperties.PREFIX + ".routing-expression", "headers['func']")
+				.setHeader("func", "reverse").build();
+		assertThat(function.apply(message)).isEqualTo("olleh");
 	}
 
 	@SuppressWarnings({ "unchecked", "rawtypes" })
